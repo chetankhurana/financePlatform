@@ -17,7 +17,6 @@ const serializeTransaction = (obj) => {
 };
 
 export async function createAccount(data) {
-  console.log("Creating account with data:", data);
   try {
     const { userId } = await auth();
     if (!userId) throw new Error("Unauthorized");
@@ -75,4 +74,32 @@ export async function createAccount(data) {
     console.error("Error in createAccount:", error);
     throw error;
   }
+}
+
+export async function getUserAccounts() {
+  const { userId } = await auth();
+    if (!userId) throw new Error("Unauthorized");
+
+    // Find the user in your DB by Clerk ID
+    const user = await db.user.findUnique({
+      where: { clerkUserId: userId },
+    });
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const accounts = await db.account.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      include: {
+        _count:{
+          select:{transactions : true}
+        }
+      }
+    })
+
+    const serializedAccount = accounts.map(serializeTransaction);
+    return serializedAccount;
+
 }
