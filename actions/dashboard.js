@@ -55,11 +55,10 @@ export async function createAccount(data) {
     // Create the new account with correct decimal type for balance
     const account = await db.account.create({
       data: {
-        name: data.name,
-        type: data.type,
-        balance: new Prisma.Decimal(balanceFloat),
+        ...data,
+        balance: balanceFloat,
         userId: user.id,
-        isDefault: shouldBeDefault,
+        isDefault: shouldBeDefault, // Override the isDefault based on our logic
       },
     });
 
