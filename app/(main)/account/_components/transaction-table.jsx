@@ -301,9 +301,8 @@ function TransactionTable({transactions}) {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent className="bg-white">
                             <DropdownMenuItem
-                            onClick={()=>{
-                                router.push(`/transaction/create/${transaction.id}`)
-                            }}
+                            onClick={()=>
+                                router.push(`/transaction/create?edit=${transaction.id}`)}
                             >Edit</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem

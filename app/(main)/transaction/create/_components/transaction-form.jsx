@@ -11,21 +11,39 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import   CreateAccountDrawer  from "@/components/create-account-drawer";
 import { Calendar } from '@/components/ui/calendar';
-import { CalendarIcon } from 'lucide-react';
+import { CalendarIcon, Loader2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import ReciptScanner from './recipt-scanner';
+import { updateTransaction } from '@/actions/transaction';
 
-function AddTransactionForm({accounts , categories}) {
+function AddTransactionForm({accounts , categories,editMode=false,initialData=null}) {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const editId = searchParams.get("edit");
 
     const {register,setValue,handleSubmit,formState:{errors},watch,getValues,reset} = useForm({
         resolver:zodResolver(transactionSchema),
-        defaultValues: {
+        defaultValues: 
+        editMode && initialData ?
+        {
+            type: initialData.type,
+            amount: initialData.amount.toString(),
+            description: initialData.description,
+            accountId: initialData.accountId,
+            category: initialData.category,
+            date: new Date(initialData.date),
+            isRecurring: initialData.isRecurring,
+            ...(initialData.recurringInterval && {
+              recurringInterval: initialData.recurringInterval,
+            }),
+        }
+        :
+        {
             type: 'EXPENSE',
             amount: '',
             description: '',
@@ -41,7 +59,7 @@ function AddTransactionForm({accounts , categories}) {
         loading: transactionLoading,
         fn: transactionFn,
         data: transactionResult,
-      } = useFetch(createTransaction);
+      } = useFetch(editMode ? updateTransaction : createTransaction);
 
       const type = watch("type");
       const isRecurring = watch("isRecurring");
@@ -57,16 +75,23 @@ function AddTransactionForm({accounts , categories}) {
             ...data,
             amount:parseFloat(data.amount),
         };
-        transactionFn(formData)
+        if(editMode){
+            transactionFn(editId , formData);
+        }
+        else{
+            transactionFn(formData);
+        }
     }
 
     useEffect(() => {
         if(transactionResult?.success && !transactionLoading){
-            toast.success("Transaction created successfully");
+            toast.success(
+                editMode ? "Transaction updated successfully" :
+                        "Transaction created successfully");
             reset();
             router.push(`/account/${transactionResult.data.accountId}`)
         }
-    } , [transactionResult,transactionLoading]);
+    } , [transactionResult,transactionLoading,editMode]);
 
     const handleScanComplete = (scannedData) => {
         if (scannedData) {
@@ -85,7 +110,7 @@ function AddTransactionForm({accounts , categories}) {
     return (
         <form className='space-y-6' onSubmit={handleSubmit(onSubmit)}>
             {/*AI RECEIPT SCANNER */}
-            <ReciptScanner onScanComplete={handleScanComplete}/>
+            {!editMode && <ReciptScanner onScanComplete={handleScanComplete}/>}
 
             <div className='space-y-2 '>
                 <label className='text-sm font-medium'>Type</label>
@@ -138,7 +163,7 @@ function AddTransactionForm({accounts , categories}) {
                 <CreateAccountDrawer>
                 <Button
                     variant="ghost"
-                    className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                    className="relative flex w-full cursor-default select-none items-cente rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
                 >
                     Create Account
                 </Button>
@@ -255,21 +280,33 @@ function AddTransactionForm({accounts , categories}) {
             </div>
         )}
 
-        <div className='flex gap-4 '>
+        <div className='flex gap-4 items-center'>
             <Button
             type="button"
             variant="outline"
-            className="w-full"
+            className="w-100"
             onClick={() => router.back()}
-            >Cancel
+            >
+            Cancel
             </Button>
             
             <Button
             type="submit"
-            className="w-full"
+            className="w-100"
+            variant="outline"
             disabled={transactionLoading}
             >
-            Create Transaction
+                {transactionLoading ? (
+                    <>
+                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                    {editMode ? "Updating Transaction...": "Creating Transaction..."}
+                    </>
+                )
+                : editMode ? (
+                    "Update Transaction"
+                ):(
+                    "Create Transaction"
+                )}
             </Button>
         </div>
 
