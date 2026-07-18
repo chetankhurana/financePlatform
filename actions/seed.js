@@ -3,37 +3,32 @@
 import { db } from "@/lib/prisma";
 import { subDays } from "date-fns";
 
-const ACCOUNT_ID = "0d3d926d-68e6-402f-a937-6e65dba9bd8c";
-const USER_ID = "f2d025fc-1f56-4043-b8d9-b4b1240e0165";
-
 // Categories with their typical amount ranges
 const CATEGORIES = {
   INCOME: [
-    { name: "salary", range: [5000, 8000] },
-    { name: "freelance", range: [1000, 3000] },
-    { name: "investments", range: [500, 2000] },
-    { name: "other-income", range: [100, 1000] },
+    { name: "salary",       range: [5000, 8000]  },
+    { name: "freelance",    range: [1000, 3000]  },
+    { name: "investments",  range: [500,  2000]  },
+    { name: "other-income", range: [100,  1000]  },
   ],
   EXPENSE: [
-    { name: "housing", range: [1000, 2000] },
-    { name: "transportation", range: [100, 500] },
-    { name: "groceries", range: [200, 600] },
-    { name: "utilities", range: [100, 300] },
-    { name: "entertainment", range: [50, 200] },
-    { name: "food", range: [50, 150] },
-    { name: "shopping", range: [100, 500] },
-    { name: "healthcare", range: [100, 1000] },
-    { name: "education", range: [200, 1000] },
-    { name: "travel", range: [500, 2000] },
+    { name: "housing",        range: [1000, 2000] },
+    { name: "transportation", range: [100,  500]  },
+    { name: "groceries",      range: [200,  600]  },
+    { name: "utilities",      range: [100,  300]  },
+    { name: "entertainment",  range: [50,   200]  },
+    { name: "food",           range: [50,   150]  },
+    { name: "shopping",       range: [100,  500]  },
+    { name: "healthcare",     range: [100,  1000] },
+    { name: "education",      range: [200,  1000] },
+    { name: "travel",         range: [500,  2000] },
   ],
 };
 
-// Helper to generate random amount within a range
 function getRandomAmount(min, max) {
   return Number((Math.random() * (max - min) + min).toFixed(2));
 }
 
-// Helper to get random category with amount
 function getRandomCategory(type) {
   const categories = CATEGORIES[type];
   const category = categories[Math.floor(Math.random() * categories.length)];
@@ -41,69 +36,91 @@ function getRandomCategory(type) {
   return { category: category.name, amount };
 }
 
-export async function seedTransactions() {
+/**
+ * Seeds demo data for a brand-new user:
+ *  - 2 accounts (Savings + Current)
+ *  - 90 days of randomised transactions on each account
+ *  - A monthly budget
+ *
+ * @param {string} userId  Internal DB UUID of the user (not clerk ID)
+ */
+export async function seedDemoData(userId) {
   try {
-    // Generate 90 days of transactions
-    const transactions = [];
-    let totalBalance = 0;
-
-    for (let i = 90; i >= 0; i--) {
-      const date = subDays(new Date(), i);
-
-      // Generate 1-3 transactions per day
-      const transactionsPerDay = Math.floor(Math.random() * 3) + 1;
-
-      for (let j = 0; j < transactionsPerDay; j++) {
-        // 40% chance of income, 60% chance of expense
-        const type = Math.random() < 0.4 ? "INCOME" : "EXPENSE";
-        const { category, amount } = getRandomCategory(type);
-
-        const transaction = {
-          id: crypto.randomUUID(),
-          type,
-          amount,
-          description: `${
-            type === "INCOME" ? "Received" : "Paid for"
-          } ${category}`,
-          date,
-          category,
-          status: "COMPLETED",
-          userId: USER_ID,
-          accountId: ACCOUNT_ID,
-          createdAt: date,
-          updatedAt: date,
-        };
-
-        totalBalance += type === "INCOME" ? amount : -amount;
-        transactions.push(transaction);
-      }
-    }
-
-    // Insert transactions in batches and update account balance
-    await db.$transaction(async (tx) => {
-      // Clear existing transactions
-      await tx.transaction.deleteMany({
-        where: { accountId: ACCOUNT_ID },
-      });
-
-      // Insert new transactions
-      await tx.transaction.createMany({
-        data: transactions,
-      });
-
-      // Update account balance
-      await tx.account.update({
-        where: { id: ACCOUNT_ID },
-        data: { balance: totalBalance },
-      });
+    // ── 1. Create accounts ────────────────────────────────────────────────
+    const savingsAccount = await db.account.create({
+      data: {
+        name: "Main Savings",
+        type: "SAVINGS",
+        balance: 0,
+        isDefault: true,
+        userId,
+      },
     });
 
-    return {
-      success: true,
-      message: `Created ${transactions.length} transactions`,
-    };
+    const currentAccount = await db.account.create({
+      data: {
+        name: "Daily Expenses",
+        type: "CURRENT",
+        balance: 0,
+        isDefault: false,
+        userId,
+      },
+    });
+
+    // ── 2. Generate transactions for each account ─────────────────────────
+    for (const account of [savingsAccount, currentAccount]) {
+      const transactions = [];
+      let totalBalance = 0;
+
+      for (let i = 90; i >= 0; i--) {
+        const date = subDays(new Date(), i);
+        const txPerDay = Math.floor(Math.random() * 3) + 1;
+
+        for (let j = 0; j < txPerDay; j++) {
+          // Savings: more income, fewer expenses; Current: more expenses
+          const incomeChance = account.type === "SAVINGS" ? 0.5 : 0.3;
+          const type = Math.random() < incomeChance ? "INCOME" : "EXPENSE";
+          const { category, amount } = getRandomCategory(type);
+
+          transactions.push({
+            id: crypto.randomUUID(),
+            type,
+            amount,
+            description: `${type === "INCOME" ? "Received" : "Paid for"} ${category}`,
+            date,
+            category,
+            status: "COMPLETED",
+            userId,
+            accountId: account.id,
+            createdAt: date,
+            updatedAt: date,
+          });
+
+          totalBalance += type === "INCOME" ? amount : -amount;
+        }
+      }
+
+      // Insert transactions and update balance atomically
+      await db.$transaction(async (tx) => {
+        await tx.transaction.createMany({ data: transactions });
+        await tx.account.update({
+          where: { id: account.id },
+          data: { balance: totalBalance },
+        });
+      });
+    }
+
+    // ── 3. Create a starting budget ───────────────────────────────────────
+    await db.budget.create({
+      data: {
+        amount: 5000,
+        userId,
+      },
+    });
+
+    return { success: true, message: "Demo data seeded successfully" };
   } catch (error) {
-    console.error("Error seeding transactions:", error);
+    console.error("❌ Error seeding demo data:", error);
     return { success: false, error: error.message };
   }
 }
