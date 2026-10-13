@@ -266,7 +266,7 @@ function TransactionTable({transactions}) {
                         style={{color: transaction.type === "EXPENSE" ? "red" : "green"}}
                         >
                             {transaction.type === "EXPENSE" ? "-" : "+"}
-                            ${transaction.amount.toFixed(2)}
+                            ₹{transaction.amount.toFixed(2)}
                         </TableCell>
                         <TableCell>
                             {transaction.isRecurring ? (
