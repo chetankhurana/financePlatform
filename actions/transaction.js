@@ -121,10 +121,26 @@ export async function createTransaction(data) {
     return date;
   }
 
+  async function generateContentWithRetry(modelName, parts, retries = 2, delayMs = 500) {
+    const model = genAI.getGenerativeModel({ model: modelName });
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        return await model.generateContent(parts);
+      } catch (error) {
+        const is503 = error.message?.includes("503") || error.message?.includes("Service Unavailable");
+        if (is503 && attempt < retries) {
+          console.warn(`[scanReceipt] ${modelName} returned 503, retrying in ${delayMs}ms (attempt ${attempt}/${retries})...`);
+          await new Promise((res) => setTimeout(res, delayMs));
+          delayMs *= 2; // exponential backoff
+        } else {
+          throw error;
+        }
+      }
+    }
+  }
+
   export async function scanReceipt(file){
     try {
-        const model = genAI.getGenerativeModel({model:"gemini-1.5-flash"});
-        
         //convert file to array buffer
         const arrayBuffer = await file.arrayBuffer();
 
@@ -149,7 +165,7 @@ export async function createTransaction(data) {
   
         If its not a recipt, return an empty object`
 
-        const result = await model.generateContent([
+        const parts = [
             {
                 inlineData:{
                     data:base64String,
@@ -157,7 +173,21 @@ export async function createTransaction(data) {
                 },
             },
             prompt,
-        ]);
+        ];
+
+        // Try primary model with retries, fall back to gemini-3.5-flash on persistent 503
+        let result;
+        try {
+          result = await generateContentWithRetry("gemini-3.8-flash", parts);
+        } catch (primaryError) {
+          const is503 = primaryError.message?.includes("503") || primaryError.message?.includes("Service Unavailable");
+          if (is503) {
+            console.warn("[scanReceipt] gemini-3.8-flash unavailable, falling back to gemini-3.5-flash...");
+            result = await generateContentWithRetry("gemini-3.5-flash", parts);
+          } else {
+            throw primaryError;
+          }
+        }
 
         const response = await result.response;
         const text = response.text();
@@ -179,7 +209,7 @@ export async function createTransaction(data) {
 
 
     } catch (error) {
-        throw new error("Error scanning receipt: " + error.message);
+        throw new Error("Error scanning receipt: " + error.message);
     }
   }
   
